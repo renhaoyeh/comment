@@ -11,6 +11,11 @@
     .fade-in { animation: fadeIn 0.3s ease; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; } }
     #progressLog { max-height: 120px; overflow-y: auto; scroll-behavior: smooth; }
+    #lotteryModal { backdrop-filter: blur(4px); }
+    .lottery-roll { animation: lotteryRoll 0.08s ease-in-out; }
+    @keyframes lotteryRoll { 0%,100% { transform: translateY(0); opacity:1; } 50% { transform: translateY(-6px); opacity:0.4; } }
+    .winner-pop { animation: winnerPop 0.5s cubic-bezier(0.34,1.56,0.64,1); }
+    @keyframes winnerPop { from { transform: scale(0.5); opacity:0; } to { transform: scale(1); opacity:1; } }
   </style>
 </head>
 <body class="bg-gray-50 min-h-screen font-sans text-gray-800">
@@ -105,7 +110,13 @@
             <h2 class="font-semibold text-gray-700" id="postTitle">留言列表</h2>
             <p class="text-xs text-gray-400 mt-0.5" id="postMeta"></p>
           </div>
-          <div class="flex gap-2" id="exportBtns"></div>
+          <div class="flex gap-2 items-center">
+            <button id="lotteryBtn" onclick="openLottery()"
+              class="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5">
+              🎲 抽獎
+            </button>
+            <div id="exportBtns"></div>
+          </div>
         </div>
         <div class="overflow-x-auto">
           <table class="w-full text-sm border-collapse">
@@ -126,6 +137,92 @@
         選擇左側貼文或輸入 URL 開始撈取
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Lottery Modal -->
+<div id="lotteryModal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50" onclick="closeLotteryOnBackdrop(event)">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4" onclick="event.stopPropagation()">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between px-6 pt-5 pb-4 border-b border-gray-100">
+      <div>
+        <div class="text-lg font-bold text-gray-800">🎲 抽獎</div>
+        <p id="lotterySubtitle" class="text-xs text-gray-400 mt-0.5"></p>
+      </div>
+      <button onclick="closeLottery()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+    </div>
+
+    <!-- Tabs -->
+    <div class="flex border-b border-gray-100 px-6">
+      <button onclick="switchLotteryTab('prizes')" id="tabPrizes"
+        class="text-sm py-2.5 mr-6 border-b-2 border-purple-600 text-purple-600 font-medium transition-colors">獎品設定</button>
+      <button onclick="switchLotteryTab('draw')" id="tabDraw"
+        class="text-sm py-2.5 mr-6 border-b-2 border-transparent text-gray-400 hover:text-gray-600 transition-colors">執行抽獎</button>
+      <button onclick="switchLotteryTab('results')" id="tabResults"
+        class="text-sm py-2.5 border-b-2 border-transparent text-gray-400 hover:text-gray-600 transition-colors">抽獎紀錄</button>
+    </div>
+
+    <!-- Tab: 獎品設定 -->
+    <div id="panelPrizes" class="p-6">
+      <div class="flex gap-2 mb-4">
+        <input id="prizeNameInput" type="text" placeholder="獎品名稱（例：咖啡券）"
+          class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"/>
+        <input id="prizeQtyInput" type="number" min="1" value="1" placeholder="名額"
+          class="w-20 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"/>
+        <button onclick="addPrize()"
+          class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm transition-colors">新增</button>
+      </div>
+      <div id="prizeList" class="space-y-2 text-sm min-h-[60px]">
+        <p class="text-gray-400 text-center py-4">尚無獎品</p>
+      </div>
+    </div>
+
+    <!-- Tab: 執行抽獎 -->
+    <div id="panelDraw" class="p-6 hidden">
+      <div id="drawPrizeSelect" class="mb-4">
+        <label class="block text-xs text-gray-500 mb-1.5">選擇獎品</label>
+        <select id="prizeSelect"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400">
+        </select>
+      </div>
+
+      <div id="lotteryRolling" class="hidden mb-4 text-center">
+        <div class="text-3xl font-bold text-purple-600 h-10 flex items-center justify-center overflow-hidden">
+          <span id="rollingName">—</span>
+        </div>
+      </div>
+
+      <div id="lotteryResult" class="hidden mb-4 winner-pop text-center">
+        <div class="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-2">
+          <span class="text-3xl">🎉</span>
+        </div>
+        <div class="text-base font-semibold text-gray-800" id="winnerName"></div>
+        <div class="text-sm text-gray-400" id="winnerUsername"></div>
+        <div class="text-xs text-purple-500 mt-1" id="winnerPrizeName"></div>
+      </div>
+
+      <div id="lotteryError" class="hidden text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-2.5 mb-4"></div>
+
+      <div id="drawActions">
+        <button onclick="runLottery()" id="drawBtn"
+          class="w-full bg-purple-600 hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed text-white py-2.5 rounded-xl font-medium transition-colors">
+          開始抽獎
+        </button>
+      </div>
+      <div id="drawDoneActions" class="hidden flex gap-3 mt-3">
+        <button onclick="runLottery()" class="flex-1 border border-purple-300 text-purple-600 hover:bg-purple-50 py-2 rounded-xl text-sm transition-colors">再抽一次</button>
+        <button onclick="switchLotteryTab('results')" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-xl text-sm transition-colors">查看紀錄</button>
+      </div>
+    </div>
+
+    <!-- Tab: 抽獎紀錄 -->
+    <div id="panelResults" class="p-6 hidden">
+      <div id="resultsList" class="space-y-2 text-sm min-h-[60px]">
+        <p class="text-gray-400 text-center py-4">尚無紀錄</p>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -413,6 +510,211 @@
     tr.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
+  // ── Lottery ───────────────────────────────────────────
+  let lotteryRollNames = [];
+
+  async function openLottery() {
+    if (!currentPostId) return;
+    const [commentsRes, prizesRes] = await Promise.all([
+      fetch(`/api/posts/${currentPostId}/comments`),
+      fetch(`/api/posts/${currentPostId}/lottery/prizes`),
+    ]);
+    const comments = await commentsRes.json();
+    const prizes = await prizesRes.json();
+
+    const seen = new Set();
+    lotteryRollNames = [];
+    for (const c of comments) {
+      const key = c.username || c.author;
+      if (key && !seen.has(key)) { seen.add(key); lotteryRollNames.push('@' + key); }
+    }
+
+    document.getElementById('lotterySubtitle').textContent = `共 ${seen.size} 位留言者`;
+    renderPrizeList(prizes);
+    renderPrizeSelect(prizes);
+    document.getElementById('lotteryRolling').classList.add('hidden');
+    document.getElementById('lotteryResult').classList.add('hidden');
+    document.getElementById('lotteryError').classList.add('hidden');
+    document.getElementById('drawActions').classList.remove('hidden');
+    document.getElementById('drawDoneActions').classList.add('hidden');
+    switchLotteryTab('prizes');
+    document.getElementById('lotteryModal').classList.remove('hidden');
+  }
+
+  function closeLottery() {
+    document.getElementById('lotteryModal').classList.add('hidden');
+  }
+
+  function closeLotteryOnBackdrop(e) {
+    if (e.target === document.getElementById('lotteryModal')) closeLottery();
+  }
+
+  function switchLotteryTab(tab) {
+    ['prizes', 'draw', 'results'].forEach(t => {
+      document.getElementById('panel' + t.charAt(0).toUpperCase() + t.slice(1)).classList.add('hidden');
+      const btn = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
+      btn.className = 'text-sm py-2.5 mr-6 border-b-2 border-transparent text-gray-400 hover:text-gray-600 transition-colors';
+    });
+    document.getElementById('panel' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.remove('hidden');
+    const activeBtn = document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1));
+    activeBtn.className = 'text-sm py-2.5 mr-6 border-b-2 border-purple-600 text-purple-600 font-medium transition-colors';
+    if (tab === 'results') loadLotteryResults();
+  }
+
+  // ── Prizes UI ─────────────────────────────────────────
+  function renderPrizeList(prizes) {
+    const el = document.getElementById('prizeList');
+    if (!prizes.length) {
+      el.innerHTML = '<p class="text-gray-400 text-center py-4">尚無獎品</p>';
+      return;
+    }
+    el.innerHTML = prizes.map(p => {
+      const remaining = p.quantity - p.drawn_count;
+      return `
+        <div class="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2.5">
+          <div>
+            <span class="font-medium text-gray-800">${esc(p.name)}</span>
+            <span class="ml-2 text-xs text-gray-400">${p.drawn_count}/${p.quantity} 已抽</span>
+            ${remaining === 0 ? '<span class="ml-1 text-xs text-red-400">（已抽完）</span>' : ''}
+          </div>
+          <button onclick="deletePrize(${p.id})" class="text-gray-300 hover:text-red-500 transition-colors ml-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>`;
+    }).join('');
+  }
+
+  function renderPrizeSelect(prizes) {
+    const sel = document.getElementById('prizeSelect');
+    if (!prizes.length) {
+      sel.innerHTML = '<option value="">— 請先新增獎品 —</option>';
+      document.getElementById('drawBtn').disabled = true;
+      return;
+    }
+    sel.innerHTML = prizes.map(p => {
+      const remaining = p.quantity - p.drawn_count;
+      return `<option value="${p.id}" ${remaining === 0 ? 'disabled' : ''}>${esc(p.name)}（剩 ${remaining} 名）</option>`;
+    }).join('');
+    const hasAvailable = prizes.some(p => p.quantity > p.drawn_count);
+    document.getElementById('drawBtn').disabled = !hasAvailable;
+  }
+
+  async function addPrize() {
+    const name = document.getElementById('prizeNameInput').value.trim();
+    const qty = parseInt(document.getElementById('prizeQtyInput').value) || 1;
+    if (!name) return;
+    const res = await fetch(`/api/posts/${currentPostId}/lottery/prizes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, quantity: qty }),
+    });
+    if (!res.ok) return;
+    document.getElementById('prizeNameInput').value = '';
+    document.getElementById('prizeQtyInput').value = '1';
+    const prizes = await (await fetch(`/api/posts/${currentPostId}/lottery/prizes`)).json();
+    renderPrizeList(prizes);
+    renderPrizeSelect(prizes);
+  }
+
+  async function deletePrize(prizeId) {
+    await fetch(`/api/posts/${currentPostId}/lottery/prizes/${prizeId}`, { method: 'DELETE' });
+    const prizes = await (await fetch(`/api/posts/${currentPostId}/lottery/prizes`)).json();
+    renderPrizeList(prizes);
+    renderPrizeSelect(prizes);
+  }
+
+  // ── Draw ──────────────────────────────────────────────
+  async function runLottery() {
+    const prizeId = parseInt(document.getElementById('prizeSelect').value);
+    if (!prizeId) return;
+
+    document.getElementById('lotteryResult').classList.add('hidden');
+    document.getElementById('lotteryError').classList.add('hidden');
+    document.getElementById('drawActions').classList.add('hidden');
+    document.getElementById('drawDoneActions').classList.add('hidden');
+    document.getElementById('lotteryRolling').classList.remove('hidden');
+
+    const rollingEl = document.getElementById('rollingName');
+    let ticks = 0;
+    const totalTicks = 28;
+
+    await new Promise(resolve => {
+      const interval = setInterval(() => {
+        ticks++;
+        const name = lotteryRollNames.length
+          ? lotteryRollNames[Math.floor(Math.random() * lotteryRollNames.length)]
+          : '...';
+        rollingEl.classList.remove('lottery-roll');
+        void rollingEl.offsetWidth;
+        rollingEl.classList.add('lottery-roll');
+        rollingEl.textContent = name;
+        if (ticks >= totalTicks) { clearInterval(interval); resolve(); }
+      }, 80);
+    });
+
+    const res = await fetch(`/api/posts/${currentPostId}/lottery/draw`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prize_id: prizeId }),
+    });
+
+    document.getElementById('lotteryRolling').classList.add('hidden');
+
+    if (!res.ok) {
+      const data = await res.json();
+      const errEl = document.getElementById('lotteryError');
+      errEl.textContent = data.detail || '抽獎失敗';
+      errEl.classList.remove('hidden');
+      document.getElementById('drawActions').classList.remove('hidden');
+      return;
+    }
+
+    const winner = await res.json();
+    document.getElementById('winnerName').textContent = winner.winner_author || winner.winner_username;
+    document.getElementById('winnerUsername').textContent = '@' + winner.winner_username;
+    document.getElementById('winnerPrizeName').textContent = '🏆 ' + winner.prize_name;
+    const resultEl = document.getElementById('lotteryResult');
+    resultEl.classList.remove('hidden', 'winner-pop');
+    void resultEl.offsetWidth;
+    resultEl.classList.add('winner-pop');
+    document.getElementById('drawDoneActions').classList.remove('hidden');
+
+    const prizes = await (await fetch(`/api/posts/${currentPostId}/lottery/prizes`)).json();
+    renderPrizeList(prizes);
+    renderPrizeSelect(prizes);
+  }
+
+  // ── Results ───────────────────────────────────────────
+  async function loadLotteryResults() {
+    const res = await fetch(`/api/posts/${currentPostId}/lottery/results`);
+    const results = await res.json();
+    const el = document.getElementById('resultsList');
+    if (!results.length) {
+      el.innerHTML = '<p class="text-gray-400 text-center py-4">尚無紀錄</p>';
+      return;
+    }
+    el.innerHTML = results.map(r => `
+      <div class="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2.5">
+        <div>
+          <span class="font-medium text-gray-800">${esc(r.winner_author || r.winner_username)}</span>
+          <span class="text-xs text-gray-400 ml-1">@${esc(r.winner_username)}</span>
+          <div class="text-xs text-purple-500 mt-0.5">🏆 ${esc(r.prize_name)}</div>
+        </div>
+        <button onclick="deleteResult(${r.id})" class="text-gray-300 hover:text-red-500 transition-colors ml-2 shrink-0">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>`).join('');
+  }
+
+  async function deleteResult(resultId) {
+    await fetch(`/api/posts/${currentPostId}/lottery/results/${resultId}`, { method: 'DELETE' });
+    await loadLotteryResults();
+  }
+
   // ── Utils ─────────────────────────────────────────────
   function showError(msg) {
     const el = document.getElementById('errorBar');
@@ -430,6 +732,10 @@
 
   document.getElementById('urlInput').addEventListener('keydown', e => {
     if (e.key === 'Enter') startScrape();
+  });
+
+  document.getElementById('prizeNameInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') addPrize();
   });
 
   loadPosts();

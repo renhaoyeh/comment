@@ -3,7 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from app.database import init_db
-from app.routers import scrape, export, auth
+from app.routers import scrape, export, auth, lottery
 
 app = FastAPI(title="Threads 留言撈取工具", version="1.0.0")
 
@@ -16,6 +16,7 @@ def on_startup():
 app.include_router(auth.router)
 app.include_router(scrape.router)
 app.include_router(export.router)
+app.include_router(lottery.router)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 

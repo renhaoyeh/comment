@@ -47,3 +47,33 @@ class ScrapeResponse(BaseModel):
     post_id: int
     comments_count: int
     comments: list[CommentOut]
+
+
+class PrizeCreate(BaseModel):
+    name: str
+    quantity: int = 1
+
+
+class PrizeOut(BaseModel):
+    id: int
+    post_id: int
+    name: str
+    quantity: int
+    drawn_count: int = 0
+
+    model_config = {"from_attributes": True}
+
+
+class LotteryResultOut(BaseModel):
+    id: int
+    prize_id: int
+    prize_name: str
+    winner_username: str
+    winner_author: Optional[str]
+    drawn_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DrawRequest(BaseModel):
+    prize_id: int
