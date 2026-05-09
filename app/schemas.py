@@ -70,6 +70,7 @@ class LotteryResultOut(BaseModel):
     prize_name: str
     winner_username: str
     winner_author: Optional[str]
+    winner_link: Optional[str]
     drawn_at: datetime
 
     model_config = {"from_attributes": True}

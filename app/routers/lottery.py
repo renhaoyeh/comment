@@ -95,12 +95,18 @@ def draw(post_id: int, body: DrawRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(result)
 
+    winner_comment = db.query(Comment).filter(
+        Comment.post_id == post_id,
+        Comment.username == winner.username,
+    ).first()
+
     return LotteryResultOut(
         id=result.id,
         prize_id=prize.id,
         prize_name=prize.name,
         winner_username=result.winner_username,
         winner_author=result.winner_author,
+        winner_link=winner_comment.link if winner_comment else None,
         drawn_at=result.drawn_at,
     )
 
@@ -119,12 +125,17 @@ def list_results(post_id: int, db: Session = Depends(get_db)):
     out = []
     for r in rows:
         prize = db.query(Prize).filter(Prize.id == r.prize_id).first()
+        comment = db.query(Comment).filter(
+            Comment.post_id == post_id,
+            Comment.username == r.winner_username,
+        ).first()
         out.append(LotteryResultOut(
             id=r.id,
             prize_id=r.prize_id,
             prize_name=prize.name if prize else "（已刪除）",
             winner_username=r.winner_username,
             winner_author=r.winner_author,
+            winner_link=comment.link if comment else None,
             drawn_at=r.drawn_at,
         ))
     return out
