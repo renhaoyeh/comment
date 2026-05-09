@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Threads 留言撈取工具</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .spinner { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .fade-in { animation: fadeIn 0.3s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; } }
+    #progressLog { max-height: 120px; overflow-y: auto; scroll-behavior: smooth; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen font-sans text-gray-800">
+
+<div class="max-w-5xl mx-auto px-4 py-8">
+  <!-- Header -->
+  <div class="mb-8 flex items-center justify-between">
+    <div>
+      <h1 class="text-3xl font-bold text-gray-900">Threads 留言撈取工具</h1>
+      <p class="mt-1 text-gray-500 text-sm">輸入 Threads 貼文連結，自動抓取所有留言</p>
+    </div>
+    <div class="flex items-center gap-3">
+      <div id="authStatus" class="flex items-center gap-2 text-sm px-3 py-1.5 rounded-full border">
+        <span id="authDot" class="w-2 h-2 rounded-full bg-gray-300"></span>
+        <span id="authLabel" class="text-gray-500">未登入</span>
+      </div>
+      <button id="loginBtn" onclick="openLogin()"
+        class="text-sm bg-gray-900 hover:bg-gray-700 text-white px-4 py-1.5 rounded-full transition-colors">
+        登入 Threads
+      </button>
+      <button id="logoutBtn" onclick="doLogout()"
+        class="hidden text-sm border border-gray-300 hover:border-red-400 hover:text-red-500 text-gray-600 px-4 py-1.5 rounded-full transition-colors">
+        登出
+      </button>
+    </div>
+  </div>
+
+  <!-- Scrape Input -->
+  <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-6">
+    <label class="block text-sm font-medium text-gray-700 mb-2">貼文 URL</label>
+    <div class="flex gap-3">
+      <input id="urlInput" type="text"
+        placeholder="https://www.threads.net/@username/post/XXXXXX"
+        class="flex-1 border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+      />
+      <button id="scrapeBtn" onclick="startScrape()"
+        class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+        </svg>
+        <span id="btnText">開始撈取</span>
+      </button>
+    </div>
+
+    <!-- Progress Panel -->
+    <div id="progressPanel" class="hidden mt-4 space-y-3">
+      <!-- Count badge + status text -->
+      <div class="flex items-center gap-3">
+        <svg class="spinner w-4 h-4 text-blue-500 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+        </svg>
+        <span id="progressStatus" class="text-sm text-gray-600">啟動中...</span>
+        <span id="progressCount"
+          class="ml-auto text-xs font-semibold bg-blue-100 text-blue-700 px-2.5 py-0.5 rounded-full">
+          0 則
+        </span>
+      </div>
+      <!-- Progress bar -->
+      <div class="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+        <div id="progressBar" class="h-1.5 bg-blue-500 rounded-full transition-all duration-500" style="width:0%"></div>
+      </div>
+      <!-- Scrolling log -->
+      <div id="progressLog" class="bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 text-xs text-gray-500 space-y-0.5 font-mono"></div>
+    </div>
+
+    <div id="errorBar" class="hidden mt-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3"></div>
+    <div id="loginNotice" class="hidden mt-4 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+      已開啟 Chromium 登入視窗，請在瀏覽器中完成登入後，點擊頁面右下角的「<strong>儲存登入狀態</strong>」按鈕。
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <!-- Left: Posts History -->
+    <div class="md:col-span-1">
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="font-semibold text-gray-700 text-sm">已撈取的貼文</h2>
+          <button onclick="loadPosts()" class="text-xs text-blue-500 hover:underline">重新整理</button>
+        </div>
+        <div id="postsList" class="space-y-2 text-sm text-gray-500">
+          <p class="text-center py-4">尚無紀錄</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Comments Table -->
+    <div class="md:col-span-2">
+      <div id="commentsPanel" class="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 hidden">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="font-semibold text-gray-700" id="postTitle">留言列表</h2>
+            <p class="text-xs text-gray-400 mt-0.5" id="postMeta"></p>
+          </div>
+          <div class="flex gap-2" id="exportBtns"></div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm border-collapse">
+            <thead>
+              <tr class="text-left text-xs text-gray-500 border-b border-gray-100">
+                <th class="pb-2 pr-4 font-medium w-28">帳號</th>
+                <th class="pb-2 pr-4 font-medium">留言內容</th>
+                <th class="pb-2 pr-4 font-medium w-12 text-center">連結</th>
+                <th class="pb-2 font-medium w-16 text-right">讚</th>
+              </tr>
+            </thead>
+            <tbody id="commentsBody"></tbody>
+          </table>
+          <p id="noComments" class="hidden text-center text-gray-400 py-8 text-sm">尚未撈取到留言</p>
+        </div>
+      </div>
+      <div id="commentsEmpty" class="bg-white rounded-2xl shadow-sm border border-gray-200 flex items-center justify-center py-20 text-gray-400 text-sm">
+        選擇左側貼文或輸入 URL 開始撈取
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let currentPostId = null;
+  let loginPollTimer = null;
+  let activeEs = null;
+  let scrapeCount = 0;
+
+  // ── Auth ──────────────────────────────────────────────
+  async function refreshAuthStatus() {
+    const res = await fetch('/api/auth/status');
+    const data = await res.json();
+    const dot = document.getElementById('authDot');
+    const label = document.getElementById('authLabel');
+    const statusBox = document.getElementById('authStatus');
+    const loginBtn = document.getElementById('loginBtn');
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (data.logged_in) {
+      dot.className = 'w-2 h-2 rounded-full bg-green-500';
+      label.textContent = '已登入'; label.className = 'text-green-700';
+      statusBox.className = 'flex items-center gap-2 text-sm px-3 py-1.5 rounded-full border border-green-200 bg-green-50';
+      loginBtn.classList.add('hidden'); logoutBtn.classList.remove('hidden');
+    } else {
+      dot.className = 'w-2 h-2 rounded-full bg-gray-300';
+      label.textContent = '未登入'; label.className = 'text-gray-500';
+      statusBox.className = 'flex items-center gap-2 text-sm px-3 py-1.5 rounded-full border border-gray-200';
+      loginBtn.classList.remove('hidden'); logoutBtn.classList.add('hidden');
+    }
+    return data.logged_in;
+  }
+
+  async function openLogin() {
+    document.getElementById('loginBtn').disabled = true;
+    document.getElementById('loginNotice').classList.remove('hidden');
+    hideError();
+    try {
+      const res = await fetch('/api/auth/login', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || '開啟失敗');
+    } catch (e) {
+      showError(e.message);
+      document.getElementById('loginBtn').disabled = false;
+      document.getElementById('loginNotice').classList.add('hidden');
+      return;
+    }
+    let tries = 0;
+    loginPollTimer = setInterval(async () => {
+      tries++;
+      const loggedIn = await refreshAuthStatus();
+      if (loggedIn || tries > 360) {
+        clearInterval(loginPollTimer); loginPollTimer = null;
+        document.getElementById('loginBtn').disabled = false;
+        document.getElementById('loginNotice').classList.add('hidden');
+      }
+    }, 2000);
+  }
+
+  async function doLogout() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    await refreshAuthStatus();
+  }
+
+  // ── Scrape with SSE ───────────────────────────────────
+  function startScrape() {
+    const url = document.getElementById('urlInput').value.trim();
+    if (!url) return;
+    if (activeEs) { activeEs.close(); activeEs = null; }
+
+    hideError();
+    setLoading(true);
+    scrapeCount = 0;
+    updateCount(0);
+    clearLog();
+    // 清空表格準備即時顯示
+    document.getElementById('commentsBody').innerHTML = '';
+    document.getElementById('commentsPanel').classList.add('hidden');
+    document.getElementById('commentsEmpty').classList.remove('hidden');
+    addLog('⏳ 連線中...');
+
+    const es = new EventSource('/api/scrape/stream?url=' + encodeURIComponent(url));
+    activeEs = es;
+
+    es.onmessage = async (e) => {
+      const d = JSON.parse(e.data);
+
+      if (d.event === 'status') {
+        setStatus(d.msg);
+        addLog(d.msg);
+      }
+      else if (d.event === 'scroll') {
+        setStatus(`第 ${d.round} 輪滾動，已撈 ${d.count} 則`);
+        updateCount(d.count);
+        animateBar(d.round);
+      }
+      else if (d.event === 'progress') {
+        updateCount(d.count);
+        scrapeCount = d.count;
+        addLog(`✓ 第 ${d.count} 則 @${d.latest}：${d.latest_content}…`);
+        // 即時把這筆留言插入表格底部
+        if (d.comment) appendCommentRow(d.comment, d.count);
+      }
+      else if (d.event === 'saved') {
+        es.close(); activeEs = null;
+        setLoading(false);
+        setStatus(`完成！共撈取 ${d.count} 則留言`);
+        updateCount(d.count);
+        setBarFull();
+        addLog(`✅ 已儲存，共 ${d.count} 則`);
+        await loadPosts();
+        await selectPost(d.post_id);
+      }
+      else if (d.event === 'error') {
+        es.close(); activeEs = null;
+        setLoading(false);
+        showError(d.msg);
+      }
+      else if (d.event === 'done') {
+        updateCount(d.count);
+      }
+    };
+
+    es.onerror = () => {
+      if (activeEs) { activeEs.close(); activeEs = null; }
+      setLoading(false);
+      showError('連線中斷，請重試');
+    };
+  }
+
+  // ── Progress UI helpers ───────────────────────────────
+  function setLoading(on) {
+    document.getElementById('scrapeBtn').disabled = on;
+    document.getElementById('btnText').textContent = on ? '撈取中...' : '開始撈取';
+    document.getElementById('progressPanel').classList.toggle('hidden', !on);
+    if (!on) document.getElementById('progressBar').style.width = '0%';
+  }
+
+  function setStatus(msg) {
+    document.getElementById('progressStatus').textContent = msg;
+  }
+
+  function updateCount(n) {
+    document.getElementById('progressCount').textContent = n + ' 則';
+  }
+
+  function animateBar(round) {
+    // Indeterminate-style: oscillate based on round number
+    const pct = Math.min(90, round * 4);
+    document.getElementById('progressBar').style.width = pct + '%';
+  }
+
+  function setBarFull() {
+    document.getElementById('progressBar').style.width = '100%';
+    document.getElementById('progressBar').classList.replace('bg-blue-500', 'bg-green-500');
+  }
+
+  function addLog(msg) {
+    const log = document.getElementById('progressLog');
+    const line = document.createElement('div');
+    line.textContent = msg;
+    log.appendChild(line);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function clearLog() {
+    document.getElementById('progressLog').innerHTML = '';
+    document.getElementById('progressBar').classList.replace('bg-green-500', 'bg-blue-500');
+  }
+
+  // ── Posts list ────────────────────────────────────────
+  async function loadPosts() {
+    const res = await fetch('/api/posts');
+    const posts = await res.json();
+    const el = document.getElementById('postsList');
+    if (!posts.length) {
+      el.innerHTML = '<p class="text-center py-4">尚無紀錄</p>';
+      return;
+    }
+    el.innerHTML = posts.map(p => `
+      <div class="group rounded-lg p-2.5 hover:bg-gray-50 border border-transparent hover:border-gray-200 transition-all ${p.id === currentPostId ? 'bg-blue-50 border-blue-200' : ''} flex items-start gap-1">
+        <div class="flex-1 min-w-0 cursor-pointer" onclick="selectPost(${p.id})">
+          <div class="font-medium text-gray-800 truncate text-xs">@${esc(p.author || p.post_code)}</div>
+          <div class="text-gray-400 text-xs truncate">${esc(p.post_code)}</div>
+          <div class="text-gray-400 text-xs mt-0.5">${p.comment_count} 則留言</div>
+        </div>
+        <button onclick="deletePost(${p.id})"
+          class="opacity-0 group-hover:opacity-100 shrink-0 mt-0.5 text-gray-300 hover:text-red-500 transition-all"
+          title="刪除">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+    `).join('');
+  }
+
+  async function deletePost(postId) {
+    await fetch(`/api/posts/${postId}`, { method: 'DELETE' });
+    if (currentPostId === postId) {
+      currentPostId = null;
+      document.getElementById('commentsPanel').classList.add('hidden');
+      document.getElementById('commentsEmpty').classList.remove('hidden');
+    }
+    await loadPosts();
+  }
+
+  async function selectPost(postId) {
+    const [cRes, pRes] = await Promise.all([
+      fetch(`/api/posts/${postId}/comments`),
+      fetch('/api/posts'),
+    ]);
+    const comments = await cRes.json();
+    const posts = await pRes.json();
+    const post = posts.find(p => p.id === postId);
+    showComments(postId, comments, comments.length, post?.url || '');
+    currentPostId = postId;
+    await loadPosts();
+  }
+
+  // ── Comments table ────────────────────────────────────
+  function showComments(postId, comments, count, url) {
+    currentPostId = postId;
+    document.getElementById('commentsPanel').classList.remove('hidden');
+    document.getElementById('commentsEmpty').classList.add('hidden');
+    document.getElementById('postTitle').textContent = `留言列表（共 ${count} 則）`;
+    document.getElementById('postMeta').textContent = url;
+    document.getElementById('exportBtns').innerHTML = `
+      <a href="/api/export/csv?post_id=${postId}" class="text-xs border border-gray-300 hover:border-gray-400 text-gray-600 px-3 py-1.5 rounded-lg transition-colors">下載 CSV</a>
+      <a href="/api/export/excel?post_id=${postId}" class="text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg transition-colors">下載 Excel</a>
+    `;
+    const tbody = document.getElementById('commentsBody');
+    const noComments = document.getElementById('noComments');
+    if (!comments.length) {
+      tbody.innerHTML = '';
+      noComments.classList.remove('hidden');
+      return;
+    }
+    noComments.classList.add('hidden');
+    tbody.innerHTML = comments.map(c => `
+      <tr class="border-b border-gray-50 hover:bg-gray-50 fade-in">
+        <td class="py-2.5 pr-4 align-top">
+          <div class="font-medium text-gray-800 truncate max-w-[100px]">${esc(c.author || '')}</div>
+          <div class="text-gray-400 text-xs truncate max-w-[100px]">@${esc(c.username || '')}</div>
+        </td>
+        <td class="py-2.5 pr-4 align-top text-gray-700 leading-relaxed">${esc(c.content || '')}</td>
+        <td class="py-2.5 pr-4 align-top text-center">
+          ${c.link ? `<a href="${esc(c.link)}" target="_blank" class="text-blue-400 hover:text-blue-600" title="${esc(c.link)}">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+            </svg>
+          </a>` : '—'}
+        </td>
+        <td class="py-2.5 align-top text-right text-gray-500">${c.likes || 0}</td>
+      </tr>
+    `).join('');
+  }
+
+  // ── Live comment append ───────────────────────────────
+  function appendCommentRow(c, num) {
+    // 確保表格面板可見
+    document.getElementById('commentsPanel').classList.remove('hidden');
+    document.getElementById('commentsEmpty').classList.add('hidden');
+    document.getElementById('noComments').classList.add('hidden');
+    document.getElementById('postTitle').textContent = `留言列表（撈取中，已有 ${num} 則）`;
+
+    const tbody = document.getElementById('commentsBody');
+    const tr = document.createElement('tr');
+    tr.className = 'border-b border-gray-50 hover:bg-gray-50 fade-in';
+    tr.innerHTML = `
+      <td class="py-2.5 pr-4 align-top">
+        <div class="font-medium text-gray-800 truncate max-w-[100px]">${esc(c.author || '')}</div>
+        <div class="text-gray-400 text-xs truncate max-w-[100px]">@${esc(c.username || '')}</div>
+      </td>
+      <td class="py-2.5 pr-4 align-top text-gray-700 leading-relaxed">${esc(c.content || '')}</td>
+      <td class="py-2.5 pr-4 align-top text-center">
+        ${c.link ? `<a href="${esc(c.link)}" target="_blank" class="text-blue-400 hover:text-blue-600">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+          </svg>
+        </a>` : '—'}
+      </td>
+      <td class="py-2.5 align-top text-right text-gray-500">${c.likes || 0}</td>
+    `;
+    tbody.appendChild(tr);
+    tr.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  // ── Utils ─────────────────────────────────────────────
+  function showError(msg) {
+    const el = document.getElementById('errorBar');
+    el.textContent = '錯誤：' + msg;
+    el.classList.remove('hidden');
+  }
+
+  function hideError() {
+    document.getElementById('errorBar').classList.add('hidden');
+  }
+
+  function esc(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  document.getElementById('urlInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') startScrape();
+  });
+
+  loadPosts();
+  refreshAuthStatus();
+</script>
+</body>
+</html>
